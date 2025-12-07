@@ -1,0 +1,506 @@
+//banking and memory
+Write a C program that illustrates banking transactions using the 4th and 5th buffer allocation
+scenario. Consider three processes- EMI, withdraw and deposit. EMI and withdrawal
+processes will go into sleep mode due to insufficient balance. These two processes should be
+included in the race condition after completion of the deposit process. Display inter process
+communication between all these processes by implementing free list and buffer block list.
+(Use appropriate system calls too).
+->
+#include <stdio.h>
+#include <unistd.h>
+#include <pthread.h>
+
+#define no_buf 3
+
+typedef struct Buffer {
+    int blk_no;
+    int busy;
+} buffer;
+
+buffer buf_list[no_buf];
+int bal = 500;
+
+pthread_mutex_t buf_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t buf_cond = PTHREAD_COND_INITIALIZER;
+
+buffer* get_buf(int blk_no) {
+    pthread_mutex_lock(&buf_mutex);
+    while (1) {
+        for (int i = 0; i < no_buf; i++) {
+            if (buf_list[i].blk_no == blk_no && !buf_list[i].busy) {
+                buf_list[i].busy = 1;
+                pthread_mutex_unlock(&buf_mutex);
+                return &buf_list[i];
+            }
+        }
+        for (int i = 0; i < no_buf; i++) {
+            if (!buf_list[i].busy) {
+                buf_list[i].blk_no = blk_no;
+                buf_list[i].busy = 1;
+                pthread_mutex_unlock(&buf_mutex);
+                return &buf_list[i];
+            }
+        }
+        pthread_cond_wait(&buf_cond, &buf_mutex);
+    }
+}
+
+void rel_buf(buffer* buf) {
+    pthread_mutex_lock(&buf_mutex);
+    buf->busy = 0;
+    pthread_cond_broadcast(&buf_cond);
+    pthread_mutex_unlock(&buf_mutex);
+    printf("Released buffer for blk_no = %d.\n", buf->blk_no);
+}
+
+pthread_cond_t balance_cond = PTHREAD_COND_INITIALIZER;
+
+void* emi(void* arg) {
+    printf("\nemi Process ---\n");
+    while (1) {
+        buffer* buf = get_buf(1);
+        pthread_mutex_lock(&buf_mutex);
+
+        while (bal < 1000) {
+            printf("emi waiting, insufficient balance: %d\n", bal);
+            printf("emi triggering auto-deposit...\n");
+            bal += 2000;
+            printf("Auto-deposited 2000. Balance = %d\n", bal);
+            pthread_cond_broadcast(&balance_cond);
+        }
+
+        bal -= 1000;
+        printf("emi paid. New Balance = %d\n", bal);
+        pthread_mutex_unlock(&buf_mutex);
+        rel_buf(buf);
+        break;
+    }
+    return NULL;
+}
+
+void* withdraw(void* arg) {
+    printf("\nWithdraw Process ---\n");
+    while (1) {
+        buffer* buf = get_buf(1);
+        pthread_mutex_lock(&buf_mutex);
+
+        while (bal < 500) {
+            printf("Withdraw waiting, insufficient balance: %d\n", bal);
+            printf("Withdraw triggering auto-deposit...\n");
+            bal += 2000;
+            printf("Auto-deposited 2000. Balance = %d\n", bal);
+            pthread_cond_broadcast(&balance_cond);
+        }
+
+        bal -= 500;
+        printf("Withdrawn 500. Balance = %d\n", bal);
+        pthread_mutex_unlock(&buf_mutex);
+        rel_buf(buf);
+        break;
+    }
+    return NULL;
+}
+
+
+void* deposit(void* arg) {
+    printf("\nDeposit Process ---\n");
+    buffer* buf = get_buf(1);
+    pthread_mutex_lock(&buf_mutex);
+    bal += 2000;
+    printf("Deposited 2000. Balance = %d\n", bal);
+    pthread_cond_broadcast(&balance_cond);
+    pthread_mutex_unlock(&buf_mutex);
+    rel_buf(buf);
+    return NULL;
+}
+main() {
+    for (int i = 0; i < no_buf; i++) {
+        buf_list[i].blk_no = -1;
+        buf_list[i].busy = 0;
+    }
+    pthread_t t_emi, t_withdraw, t_deposit;
+    pthread_create(&t_emi, NULL, emi, NULL);
+    sleep(1);
+    pthread_create(&t_withdraw, NULL, withdraw, NULL);
+    sleep(1);
+    pthread_create(&t_deposit, NULL, deposit, NULL);
+    pthread_join(t_emi, NULL);
+    pthread_join(t_withdraw, NULL);
+    pthread_join(t_deposit, NULL);
+    printf("\nFinal balance: %d\n", bal);
+}
+
+
+Write a C program that demonstrate buffer block allocation (use memory pool to fixed size
+buffer block. Store string in block and print it)
+->
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define p_size 5
+#define b_size 50
+char pool[p_size][b_size];
+int used[p_size];
+void init() {
+	for (int i = 0; i < p_size; i++)
+		used[i] = 0;
+}
+char* getblk() {
+	for (int i = 0; i < p_size; i++) {
+		if (!used[i]) {
+			used[i] = 1;
+			return pool[i];
+		}
+	}
+	return NULL;
+}
+void freeblk(char* blk) {
+	for (int i = 0; i < p_size; i++) {
+		if (pool[i] == blk) {
+			used[i] = 0;
+			return;
+		}
+	}
+}
+int main() {
+	init();
+	char* b1 = getblk();
+	char* b2 = getblk();
+	if (b1 && b2) {
+		strcpy(b1, "hello");
+		strcpy(b2, "world");
+		printf("%s %s\n", b1, b2);
+	}
+	freeblk(b1);
+	freeblk(b2);
+	return 0;
+}
+
+//file operatins
+//assongment no 2
+
+1. Write a program to create a file with a hole in it.
+->
+#include<stdio.h>
+#include<fcntl.h>
+#include<unistd.h>
+main()
+{
+	int fd=open("xyz1.txt",O_CREAT|O_WRONLY,0777);
+	write(fd,"atharv",2);
+	lseek(fd,100,SEEK_CUR);
+	write(fd,"dhokane",5);
+	close(fd);
+}
+
+
+2. Write a program to open a file and go to sleep for 15 seconds before terminating.
+->
+#include<stdio.h>
+#include<fcntl.h>
+#include<unistd.h>
+main()
+{
+	int fd=open("xyz1.txt",O_CREAT|O_RDONLY,0777);
+	if(fd<0)
+	{
+		perror("open");
+		return 1;
+	}
+	printf("file opend going sleep");
+	sleep(15);
+	close(fd);
+	printf("file closed terminating");
+}
+
+3. Write a program to read the current directory and display the name of the files,
+size of the file, type of file and no of files in the current directory.
+->
+#include<dirent.h>
+#include<fcntl.h>
+#include<stdio.h>
+#include<unistd.h>
+#include<sys/stat.h>
+main()
+{
+	DIR *d;
+	struct dirent *dir;
+	struct stat st;
+	int cnt=0;
+	d=opendir("/home/fymsc/Desktop/FyMsc36/aos");
+	if(d){
+		while((dir=readdir(d))!=NULL){
+			stat(dir->d_name,&st);
+			printf("name : %s size : %ld\n ",dir->d_name,st.st_size);
+			if(S_ISREG(st.st_mode))
+				printf("type: file");
+			else if(S_ISDIR(st.st_mode))
+				printf("type : DIR");
+			else
+				printf("other");
+			cnt++;
+		}
+	}
+		printf("\ntotal files : %d \n",cnt);
+}
+
+
+//pipe,sysytem call
+1. Write a program to create ‘n’ children. When the children will terminate,
+display total cumulative time children spent in user and kernel mode.
+->
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/times.h>
+#include <unistd.h>
+#include <fcntl.h>
+int main() {
+    int n = 3;
+    struct tms t1, t2;
+    times(&t1);
+    for (int i = 0; i < n; i++) {
+        if (fork() == 0) {
+            int fd = open("/dev/null", O_WRONLY);
+            if (fd < 0) {
+                perror("open");
+                exit(1);
+            }
+            for (int j = 0; j < 10000000; j++);
+            for (int k = 0; k < 100000; k++) {
+                if (write(fd, "a", 1) < 0) {
+                    perror("write");
+                    close(fd);
+                    exit(1);
+                }
+            }
+            close(fd);
+            exit(0);
+        }
+    }
+    for (int i = 0; i < n; i++)
+        wait(NULL);
+    times(&t2);
+    long clk = sysconf(_SC_CLK_TCK);
+    printf("usr time=%.2f sec\n", (double)(t2.tms_cutime - t1.tms_cutime) / clk);
+    printf("sys time=%.2f sec\n", (double)(t2.tms_cstime - t1.tms_cstime) / clk);
+}
+
+
+2. Write a program to demonstrate the use of atexit() function.
+->
+#include<stdio.h>
+#include<stdlib.h>
+void bye()
+{
+    printf("exexute at the last function or just before the exit");
+}
+main()
+{
+    atexit(bye);
+    printf("these is main function");
+}
+
+
+3. Write a program to handle the two-way communication between parent and child
+using pipe.
+->
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+main() {
+	int p1[2],p2[2];
+	pipe(p1);
+	pipe(p2);
+	if(fork()==0){
+		close(p1[1]);
+		close(p2[0]);
+		char buf[50];
+		read(p1[0],buf,50);
+		printf("child got: %s\n",buf);
+		char *msg="hi parent i am child";
+		write(p2[1],msg,strlen(msg)+1);
+		exit(0);
+	}
+	else {
+		close(p1[0]);
+		close(p2[1]);
+		char *msg="hi child i am parent ";
+		write(p1[1],msg,strlen(msg)+1);
+		char buf[50];
+		read(p2[0],buf,50);
+		printf("parent got: %s\n",buf);
+	}
+}
+
+//memory management mamory leak and shared memory
+
+Write a C program that illustrates inter process communication using shared memory.
+->
+#include<stdio.h>
+#include<unistd.h>
+#include<stdlib.h>
+#include<sys/shm.h>
+#include<sys/ipc.h>
+#include<string.h>
+#include<sys/wait.h>
+main(){
+	int shmid;
+	char *shm;
+	shmid=shmget(1234,100,IPC_CREAT|0777);
+	if(fork()==0){
+		shm=shmat(shmid,NULL,0);
+		strcpy(shm,"Hello From Child ");
+		shmdt(shm);
+		exit(0);
+	}else{
+		wait(NULL);
+		shm=shmat(shmid,NULL,0);
+		printf("parent : %s",shm);
+		shmdt(shm);
+		shmctl(shmid,IPC_RMID,NULL);
+
+	}
+}
+
+
+Write a program that intentionally creates a memory leak and then modify it to fix the leak.
+->
+#include<stdio.h>
+#include<stdlib.h>
+main(){
+
+	int *p=(int *)malloc(5*sizeof(int));
+	for(int i=0;i<=5;i++)
+		p[i]=i;
+	printf("leak done");
+}
+
+#include<stdio.h>
+#include<stdlib.h>
+main(){
+
+	int *p=(int *)malloc(5*sizeof(int));
+	for(int i=0;i<=5;i++)
+		p[i]=i;
+	for(int i=0;i<=5;i++)
+                printf("%d\n",p[i]);
+        free(p);
+	printf("memory are freed");
+}
+
+//signal handling
+Write a C program which creates a child process which catches a signal sighup, sigint
+and sigquit. The Parent process send a sighup or sigint signal after every 3 seconds, at the
+end of 30 second parent send sigquit signal to child and child terminates by displaying
+message "My DADDY has Killed me!!!”.
+->
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+void sighup(int sig)
+{
+	printf("child got singup\n");
+}
+void sigint(int sig)
+{
+	printf("child got sigint\n");
+}
+void sigquit(int sig)
+{
+	printf("my daddy has Killed me!\n");
+	exit(0);
+}
+main()
+{
+	int pid = fork();
+	if (pid == 0)
+	{
+		signal(SIGHUP, sighup);
+		signal(SIGINT, sigint);
+		signal(SIGQUIT, sigquit);
+		for (;;)
+		{
+			pause();
+		}
+	}
+	else
+	{
+		sleep(1);
+		for (int i = 0; i < 10; i++)
+		{
+			if (i % 2 == 0)
+			{
+				kill(pid, SIGHUP);
+			}
+			else
+			{
+				kill(pid, SIGINT);
+			}
+			sleep(3);
+		}
+		kill(pid, SIGQUIT);
+	}
+}
+
+2. Write a C program that illustrates suspending and resuming processes using signals.
+->
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+main()
+{
+	int pid = fork();
+	if (pid == 0)
+	{
+		for (;;)
+		{
+			printf("child running...\n");
+			sleep(1);
+		}
+	}
+	else
+	{
+		sleep(3);
+		kill(pid, SIGSTOP);
+		printf("child suspended\n");
+		sleep(5);
+		kill(pid, SIGCONT);
+		printf("child resumed\n");
+		sleep(3);
+		kill(pid, SIGKILL);
+		printf("child killed\n");
+	}
+}
+
+3. Write a C program that handling both SIGINT (triggered by pressing Ctrl+C) and
+SIGTERM (which can be sent to the process using the kill command) using signal
+handlers.
+->
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <unistd.h>
+void h1(int sig)
+{
+	printf("got SIGINT\n");
+}
+void h2(int sig)
+{
+	printf("got SIGTERM, exiting...\n");
+	exit(0);
+}
+int main()
+{
+	signal(SIGINT, h1);
+	signal(SIGTERM, h2);
+	for (;;)
+	{
+		printf("running...\n");
+		sleep(2);
+	}
+}
